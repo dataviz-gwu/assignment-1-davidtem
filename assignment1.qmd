@@ -1,6 +1,6 @@
 ---
 title: "Assignment 1"
-author: "Your Name"
+author: "David Temkin"
 format: html
 ---
 
@@ -16,6 +16,42 @@ format: html
 
 ```{r}
 
+# First I'm gonna load the V-dem data into my R program by using 'library()' to load my packages. I am also going to load 'dplyr' and 'janitor' since they will be useful. I attempted to load it as an API.
+
+library(vdemdata)
+library(dplyr)
+library(janitor)
+
+# I now load the data. I identified lower chamber female legislators (v2lgfemleg) and women's participation in civil society (v2csgender) as variables relating to women's representation. I also retained the region variable and gdp per capita in addition to voter turnout.
+
+women_democracy <- vdem |>
+  filter(year>1993) |>
+  select(
+    country = country_name,
+    vdem_ctry_id = country_id,
+    year,
+    lady_leg = v2lgfemleg,
+    civil_wom = v2csgender,
+    gdp_pc = e_gdppc,
+    turnout = v2eltrnout,
+    region = e_regionpol_6C
+  ) |>
+  mutate(
+    region = case_match(region,
+                        1 ~ "Eastern Europe",
+                        2 ~ "Latin America",
+                        3 ~ "Middle East",
+                        4 ~ "Africa",
+                        5 ~ "The West",
+                        6 ~ "Asia")
+                        )
+
+# I'd also like to preview my data for democracy using 'glimpse'.
+
+glimpse(women_democracy)
+
+# Wow! We did it I think! How bout that!
+
 ```
 
 ## Step 2: Download data from the World Bank
@@ -26,6 +62,41 @@ format: html
 
 ```{r}
 
+# Here, I'll do pretty much the same thing as I did earlier but with the World Bank data. I'll need to use my library function to load the variables once again.
+
+library(wbstats)
+
+# I now load the data. I included our previous data from module 1.2 in addition to the rate of bachelors degree attainment for women aged 25 and over code (SE.TER.CUAT.BA.FE.ZS). I first have to assign them indicators.
+
+flfp_indicators <- wb_search("female labor force")
+print(flfp_indicators, n=26)
+
+women_parliament <- wb_search("women in parliament")
+print(women_parliament)
+
+women_education <- wb_search("SE.TER.CUAT.BA.FE.ZS")
+print(women_education)
+
+# Now that I've got those, I store them as objects.
+
+indicators <- c("flfp" = "SL.TLF.CACT.FE.ZS", "women_rep" = "SG.GEN.PARL.ZS", "women_ed" = "SE.TER.CUAT.BA.FE.ZS")
+
+# Time to download some data. I'll store it as women empowerment once again and adjust it to download for the past 20 years.
+
+women_emp <- wb_data(indicators, mrv = 20) |> 
+  select(!iso2c) |> 
+  rename(year = date) |> 
+  mutate(
+    flfp = round_to_fraction(flfp, denominator = 100), 
+    women_rep = round_to_fraction(women_rep, denominator = 100),
+    women_ed = round_to_fraction(women_ed, denominator = 100)
+  )
+
+# Now, I'll check my work just to make sure I didn't screw anything up.
+
+glimpse(women_emp)
+
+# Wow! We did it I think! How bout that!
 ```
 
 ## Step 3: Merge the data
@@ -34,14 +105,84 @@ format: html
 
 ```{r}
 
+# Now I'll try to merge the datasets. I'll start by loading the countrycode package which will help me create commonality between the datasets.
+
+library(countrycode)
+
+# Now I'll label it
+
+women_democracy <- women_democracy |>    
+  mutate(iso3c = countrycode(sourcevar = vdem_ctry_id, 
+        origin = "vdem",         
+        destination = "wb")) |> 
+  relocate(iso3c, .after = vdem_ctry_id) 
+
+# I'll check my work again to make sure it's all in order
+
+glimpse(women_democracy)
+
+# I am not sure if I did this part right. I get a warning when I preview the code. Hopefully it is ok. I will now try to merge the datasets which hopefully share a common countrycode. I have to load up readr to do this.
+
+library(readr)
+
+dem_women <- left_join(women_democracy, women_emp, by = c("iso3c", "year")) |> 
+   rename(country = country.x) |> 
+  select(!country.y)
+
+# Once again, I'm not totally sure about my code. However, after some trouble shooting I think it runs. I the glimpse function spits out an output with all of the variables I was looking for, so hopefully we ended up somewhere positive.
+
+glimpse(dem_women)
 ```
 
 ## Step 4: Summarize your combined data set
 
 *Use `group_by()`, `summarize()` and `arrange()` to glean insights about your data. For example, how do regions compare on mean values of women's representation and how do these values relate to the values of other variables in your data set? Which countries stand out in terms of women's representation? Etc.* 
 
+```{r}
+
+# Here, I decided to run two versions of the same code. One I ran by region and the other by country.
+
+dem_summary <- dem_women |>
+  group_by(region)  |> 
+  summarize(           
+    women_ed = mean(women_ed, na.rm = TRUE),
+    turnout = mean(turnout, na.rm = TRUE),
+    lady_leg = mean(lady_leg, na.rm = TRUE),
+    civil_wom = mean(civil_wom, na.rm = TRUE),
+    women_rep = mean(women_rep, na.rm = TRUE),
+    gdp_pc = mean(gdp_pc, na.rm = TRUE), 
+    flfp = mean(flfp, na.rm = TRUE)
+  ) |> 
+  arrange(desc(women_rep)) 
+
+glimpse(dem_summary)
+
+# This second string of code is obviously in regards to the country. It is much longer as you can imagine!
+
+dem_summary <- dem_women |>
+  group_by(country)  |> 
+  summarize(           
+    women_ed = mean(women_ed, na.rm = TRUE),
+    turnout = mean(turnout, na.rm = TRUE),
+    lady_leg = mean(lady_leg, na.rm = TRUE),
+    civil_wom = mean(civil_wom, na.rm = TRUE),
+    women_rep = mean(women_rep, na.rm = TRUE),
+    gdp_pc = mean(gdp_pc, na.rm = TRUE), 
+    flfp = mean(flfp, na.rm = TRUE)
+  ) |> 
+  arrange(desc(women_rep)) 
+
+glimpse(dem_summary)
+
+```
+
 
 ## Step 5: Interpret your data
 
 *Write a paragraph or so relating your insights to the Norris reading about electoral reform and women's representation. Picking a handful of country cases from your data, how does your analysis relate to her arguments about the relevance of electoral systems, statutory quotas, reserved seats or voluntary quotas?* 
 
+  After reading the Norris article, I now realize that I my selection of variables could have been better. For example, I chose to include the number of female legislators in the lower chamber. This I now realize was a poor choice considering that I also included a variable for women's representation in the legislature which for all intensive purposes is a measure of the exact same thing (I also did not convert female legislators in the lower chamber using the "round_to_fraction" function which I also now realize hinders the value of that measure since the overall number of legislators in a Congress varies greatly). It also may have been wiser to choose a variable like the "women political participation index" or items more directly related to electoral reform rather than democratic health variables such as turnout of women's education rates.
+  Anyways, I found it quite interesting that my dem_summary ranked the Netherlands in 14th among womens representation in the legislature while Norris's article claims that they rank sixth. However, this may be a reflection of the fact that the article uses data from 2006 while my summary spans an average of the past 20 years. Interestingly though, Norris states that 43% of Sweden's lower chamber is made up of women, almost equal to my summary's 45%. 
+  Addressing her arguments more directly, many of the countries with the highest rates of female representation in the legislatures in my dem_summary are  are those which utilize proportional representation rather than first past the post. Despite ranking well on variables like civic engagement (civil_wom) and women's education, nations utilizing first past the post for lower chambers like the U.S. and Canada rank outside the top 50 for womens representation and even behind nations like Iraq and Angola who rank comparatively low on the former metrics. However, reinforcing Norris's point on  quotas, both Iraq and Angola have quotas for female representation in government. Iraq's constitution states that 25% of government employees must be female while Angola's stands at 30%. Coincidentally, these legally binding percentiles match up almost exactly with what I see in my dem_summary.
+  
+  
